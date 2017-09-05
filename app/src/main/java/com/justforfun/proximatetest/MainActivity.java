@@ -65,6 +65,8 @@ public class MainActivity extends AppCompatActivity {
                     }
                     else{
                         Intent intent = new Intent(MainActivity.this,ProfileActivity.class);
+                        intent.putExtra("id",loginResponse.getId());
+                        intent.putExtra("token",loginResponse.getToken());
                         startActivity(intent);
                     }
                 });
