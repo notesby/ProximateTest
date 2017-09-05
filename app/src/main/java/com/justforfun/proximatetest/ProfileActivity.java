@@ -1,18 +1,27 @@
 package com.justforfun.proximatetest;
 
+import android.Manifest;
+import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
+import android.location.Location;
+import android.location.LocationManager;
 import android.media.MediaScannerConnection;
 import android.net.Uri;
 import android.os.Environment;
 import android.provider.MediaStore;
+import android.support.annotation.NonNull;
+import android.support.v4.app.ActivityCompat;
+import android.support.v4.content.ContextCompat;
 import android.support.v4.content.FileProvider;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
 import android.widget.ImageView;
+import android.widget.TextView;
 
 import com.afollestad.materialdialogs.MaterialDialog;
 import com.bumptech.glide.Glide;
@@ -40,6 +49,8 @@ import io.realm.Realm;
 public class ProfileActivity extends AppCompatActivity {
 
     static final int REQUEST_IMAGE_CAPTURE = 1;
+    public static final int FINE_LOCATION_REQUEST_CODE = 350;
+    public static final int CAMERA_REQUEST_CODE = 130;
 
     String mCurrentPhotoPath;
 
@@ -53,18 +64,21 @@ public class ProfileActivity extends AppCompatActivity {
     MaterialDialog messageDialog;
 
     ImageView profileImageView;
+    TextView locationTextView;
 
     Uri profileImagePath;
 
     SharedPreferences preferences;
+
+    LocationManager locationManager;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_profile);
 
-
-        profileImageView = (ImageView) findViewById(R.id.image_view_profile);
+        profileImageView = findViewById(R.id.image_view_profile);
+        locationTextView = findViewById(R.id.text_view_location);
 
         Intent intent = getIntent();
 
@@ -80,13 +94,108 @@ public class ProfileActivity extends AppCompatActivity {
 
         preferences = this.getSharedPreferences("settings",MODE_PRIVATE);
 
+        String locationProvider = LocationManager.NETWORK_PROVIDER;
+
+        locationManager = (LocationManager) this.getSystemService(Context.LOCATION_SERVICE);
+
+
+
         String path = preferences.getString("profile_picture_path","");
         if (!path.isEmpty()){
             profileImagePath = Uri.parse(path);
             displayImage();
         }
+
+        String lat,lng;
+
+        lat = preferences.getString("lat","");
+        lng = preferences.getString("lng","");
+        locationTextView.setText("latitude: "+lat+" longitude: "+lng);
+
+
     }
 
+    void requestLocationPermission()
+    {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED)
+        {
+            if (ActivityCompat.shouldShowRequestPermissionRationale(this, Manifest.permission.ACCESS_FINE_LOCATION))
+            {
+                new MaterialDialog.Builder(this)
+                        .title("Petición de permiso")
+                        .content("El permiso de localización es utilizado para agregar su posicion a la foto de perfil.")
+                        .positiveText("Aceptar")
+                        .show();
+            }
+            else
+            {
+                ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.ACCESS_FINE_LOCATION},FINE_LOCATION_REQUEST_CODE);
+            }
+        }
+        else
+        {
+            requestCameraPermission();
+        }
+    }
+
+    void requestCameraPermission()
+    {
+        if (ContextCompat.checkSelfPermission(this,Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED)
+        {
+            if (ActivityCompat.shouldShowRequestPermissionRationale(this, Manifest.permission.CAMERA))
+            {
+                new MaterialDialog.Builder(this)
+                        .title("Petición de permiso")
+                        .content("El permiso de la camara es utilizado tomar una foto de perfil.")
+                        .positiveText("Aceptar")
+                        .show();
+            }
+            else
+            {
+                ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.CAMERA},CAMERA_REQUEST_CODE);
+            }
+        }
+        else
+        {
+            startCamera();
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        switch (requestCode) {
+            case FINE_LOCATION_REQUEST_CODE: {
+                if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED)
+                {
+                    try
+                    {
+                        requestCameraPermission();
+                    }
+                    catch (SecurityException e)
+                    {
+                        e.printStackTrace();
+                    }
+                }
+                return;
+            }
+            case CAMERA_REQUEST_CODE: {
+                if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED)
+                {
+                    try
+                    {
+                        startCamera();
+                    }
+                    catch (SecurityException e)
+                    {
+                        e.printStackTrace();
+                    }
+                }
+                return;
+            }
+            default: break;
+        }
+    }
 
     @Override
     protected void onStart() {
@@ -163,6 +272,10 @@ public class ProfileActivity extends AppCompatActivity {
     }
 
     public void takePicture(View view){
+        requestLocationPermission();
+    }
+
+    private void startCamera(){
         Intent takePictureIntent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
         if (takePictureIntent.resolveActivity(getPackageManager()) != null) {
             File photoFile = null;
@@ -190,6 +303,7 @@ public class ProfileActivity extends AppCompatActivity {
         if (requestCode == REQUEST_IMAGE_CAPTURE && resultCode == RESULT_OK) {
 
             savePath();
+            saveLocation();
             displayImage();
         }
     }
@@ -199,6 +313,24 @@ public class ProfileActivity extends AppCompatActivity {
         SharedPreferences.Editor editor = preferences.edit();
         editor.putString("profile_picture_path",profileImagePath.toString());
         editor.apply();
+    }
+
+    void saveLocation(){
+        try {
+            String locationProvider = LocationManager.NETWORK_PROVIDER;
+            Location lastKnownLocation = locationManager.getLastKnownLocation(locationProvider);
+
+            SharedPreferences.Editor editor = preferences.edit();
+            editor.putString("lat",lastKnownLocation.getLatitude()+"");
+            editor.putString("lng",lastKnownLocation.getLongitude()+"");
+            editor.apply();
+
+            locationTextView.setText("latitude: "+lastKnownLocation.getLatitude()
+                                    +" longitude: "+lastKnownLocation.getLongitude());
+        }
+        catch (SecurityException e){
+            e.printStackTrace();
+        }
     }
 
     void displayImage(){
